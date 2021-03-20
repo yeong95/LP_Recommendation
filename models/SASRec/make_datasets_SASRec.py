@@ -32,7 +32,6 @@ def make_datasets(data, len_Seq = 0, len_Tag =0, len_Pred = 0):
     # Get user session
     data = data.sort_values(by=['user','timestamps']).reset_index(drop=True)
 
-    # 生成用户序列
     user_sessions = data.groupby('user')['item'].apply(lambda x: x.tolist()) \
         .reset_index().rename(columns={'item': 'item_list'})
     
@@ -54,6 +53,15 @@ def make_datasets(data, len_Seq = 0, len_Tag =0, len_Pred = 0):
     for index, row in user_sessions.iterrows():
         user = row['user']
         items = row['item_list']
+
+        # remove session that target item is in the training sequence
+        pass_= False
+        target_item = items[-1]
+        for train_item in items[:-1]:
+            if target_item == train_item:
+                pass_ = True
+                break
+        if pass_:  continue
 
         items_usr_clicked[user] = items
 
@@ -99,232 +107,19 @@ def make_datasets(data, len_Seq = 0, len_Tag =0, len_Pred = 0):
 
     return d_train,d_test,d_info
     
-def cate_make_datasets(data, len_Seq = 0, len_Tag =0, len_Pred = 0):
-
-    #file_path = 'input/u.data'
-
-    p = data.groupby('item')['user'].count().reset_index().rename(columns={'user':'item_count'})
-    data = pd.merge(data,p,how='left',on='item')
-    data = data[data['item_count'] > 5].drop(['item_count'],axis=1)
-
-    # ReMap item ids
-    item_unique = data['item'].unique().tolist()
-    item_map = dict(zip(item_unique, range(1,len(item_unique) + 1)))
-    item_map[0] = 0
-    all_item_count = len(item_map)
-    data['item'] = data['item'].apply(lambda x: item_map[x])
-
-    # ReMap usr ids
-    user_unique = data['user'].unique().tolist()
-    user_map = dict(zip(user_unique, range(1, len(user_unique) + 1)))
-    user_map[0] = 0
-    all_user_count = len(user_map)
-    data['user'] = data['user'].apply(lambda x: user_map[x])
-    
-    # ReMap category ids
-    cate_unique = data['cate'].unique().tolist()
-    cate_map = dict(zip(cate_unique, range(1, len(cate_unique) + 1)))
-    cate_map[0] = 0
-    all_cate_count = len(cate_map)
-    data['cate'] = data['cate'].apply(lambda x: cate_map[x])
-    
-    # Get user session
-    data = data.sort_values(by=['user','timestamps']).reset_index(drop=True)
-
-    # 生成用户序列
-    user_sessions = data.groupby('user')['item'].apply(lambda x: x.tolist()) \
-        .reset_index().rename(columns={'item': 'item_list'})
-    
-    user_sessions['count'] = user_sessions.item_list.apply(lambda x : len(x))
-    user_sessions = user_sessions[user_sessions['count'] > 3].drop(['count'],axis=1)
-    
-    data = data[np.in1d(data.user, user_sessions)]
-    
-    cate_sessions = data.groupby('user')['cate'].apply(lambda x: x.tolist()) \
-        .reset_index().rename(columns={'cate': 'cate_list'})
-
-    train_users = []
-    train_seqs = []
-    train_targets = []
-
-    test_users = []
-    test_seqs = []
-    test_targets = []
-
-    cates_usr_clicked = {}
-
-    for index, row in cate_sessions.iterrows():
-        user = row['user']
-        items = row['cate_list']
-        
-        target = data[data.user == user].item.values[-1]
-        cates_usr_clicked[user] = items[:-1] + [target]
-
-        user_train = items[:-1]
-
-        train_seq = np.zeros([len_Seq], dtype=np.int32)
-        train_pos = np.zeros([len_Seq], dtype=np.int32)
-
-        nxt = user_train[-1]
-        idx = len_Seq - 1
-        for i in reversed(user_train[:-1]):
-            train_seq[idx] = i
-            train_pos[idx] = nxt
-            nxt = i
-            idx -= 1
-            if idx == -1: break
-        train_users.append(user)
-        train_seqs.append(train_seq)
-        train_targets.append(train_pos)
-
-        test_seq = np.zeros([len_Seq], dtype=np.int32)
-
-
-        user_test = items
-        nxt = target
-        test_pos = [nxt]
-
-        idx = len_Seq - 1
-        for i in reversed(user_test[:-1]):
-            test_seq[idx] = i
-            idx -= 1
-            if idx == -1: break
-        test_users.append(user)
-        test_seqs.append(test_seq)
-        test_targets.append(test_pos)
-
-    d_train = pd.DataFrame({'user':train_users,'seq':train_seqs,'target':train_targets})
-
-    d_test = pd.DataFrame({'user': test_users, 'seq': test_seqs, 'target': test_targets})
-
-    d_info= (all_user_count, all_cate_count, cates_usr_clicked, item_map, cate_map)
-
-    return d_train,d_test,d_info
-    
-def price_make_datasets(data, cut_num, len_Seq = 0, len_Tag =0, len_Pred = 0):
-
-    #file_path = 'input/u.data'
-
-    p = data.groupby('item')['user'].count().reset_index().rename(columns={'user':'item_count'})
-    data = pd.merge(data,p,how='left',on='item')
-    data = data[data['item_count'] > 5].drop(['item_count'],axis=1)
-    
-    data['price'] = data.BUY_AM / data.BUY_CT
-    
-    
-    # ReMap item ids
-    item_unique = data['item'].unique().tolist()
-    item_map = dict(zip(item_unique, range(1,len(item_unique) + 1)))
-    item_map[0] = 0
-    itemlist = list()
-    for i in item_map.keys():
-        itemlist.append(i)
-    
-    item_price_dict = dict()
-    for x in itemlist:
-      item_price = data[data.item == x].price.mean()
-      item_price_dict[x] = item_price
-      
-    item_series = pd.Series(item_price_dict)
-    price_cut = pd.qcut(item_series, cut_num, labels=range(1,cut_num+1))
-    price_cut_dict = price_cut.to_dict()
-    data['price_cate'] = data['item'].apply(lambda x: price_cut_dict[x])
-    
-    all_item_count = len(item_map)
-    data['item'] = data['item'].apply(lambda x: item_map[x])
-    
-    # ReMap usr ids
-    user_unique = data['user'].unique().tolist()
-    user_map = dict(zip(user_unique, range(1, len(user_unique) + 1)))
-    user_map[0] = 0
-    all_user_count = len(user_map)
-    data['user'] = data['user'].apply(lambda x: user_map[x])
-    
-    # ReMap price_cate ids
-    cate_unique = data['price_cate'].unique().tolist()
-    cate_map = dict(zip(cate_unique, range(1, len(cate_unique) + 1)))
-    cate_map[0] = 0
-    all_cate_count = len(cate_map)
-    data['price_cate'] = data['price_cate'].apply(lambda x: cate_map[x])
-    
-    # drop unneeded columns 
-    data = data.drop(['BUY_AM', 'BUY_CT', 'price'], axis=1)
-    
-    # Get user session
-    data = data.sort_values(by=['user','timestamps']).reset_index(drop=True)
-
-    # 生成用户序列
-    user_sessions = data.groupby('user')['item'].apply(lambda x: x.tolist()) \
-        .reset_index().rename(columns={'item': 'item_list'})
-    
-    user_sessions['count'] = user_sessions.item_list.apply(lambda x : len(x))
-    user_sessions = user_sessions[user_sessions['count'] > 3].drop(['count'],axis=1)
-    data = data[np.in1d(data.user, user_sessions)]
-    
-    cate_sessions = data.groupby('user')['price_cate'].apply(lambda x: x.tolist()) \
-        .reset_index().rename(columns={'price_cate': 'cate_list'})
-
-    train_users = []
-    train_seqs = []
-    train_targets = []
-
-    test_users = []
-    test_seqs = []
-    test_targets = []
-
-    cates_usr_clicked = {}
-
-    for index, row in cate_sessions.iterrows():
-        user = row['user']
-        items = row['cate_list']
-
-        cates_usr_clicked[user] = items
-
-        user_train = items[:-1]
-
-        train_seq = np.zeros([len_Seq], dtype=np.int32)
-        train_pos = np.zeros([len_Seq], dtype=np.int32)
-
-        nxt = user_train[-1]
-        idx = len_Seq - 1
-        for i in reversed(user_train[:-1]):
-            train_seq[idx] = i
-            train_pos[idx] = nxt
-            nxt = i
-            idx -= 1
-            if idx == -1: break
-        train_users.append(user)
-        train_seqs.append(train_seq)
-        train_targets.append(train_pos)
-
-        test_seq = np.zeros([len_Seq], dtype=np.int32)
-
-
-        user_test = items
-        nxt = user_test[-1]
-        test_pos = [nxt]
-
-        idx = len_Seq - 1
-        for i in reversed(user_test[:-1]):
-            test_seq[idx] = i
-            idx -= 1
-            if idx == -1: break
-        test_users.append(user)
-        test_seqs.append(test_seq)
-        test_targets.append(test_pos)
-
-    d_train = pd.DataFrame({'user':train_users,'seq':train_seqs,'target':train_targets})
-
-    d_test = pd.DataFrame({'user': test_users, 'seq': test_seqs, 'target': test_targets})
-
-    d_info= (all_user_count, all_cate_count, cates_usr_clicked, user_map, cate_map)
-
-    return d_train,d_test,d_info
 
 
 if __name__ == '__main__':
-    make_datasets(5,3,2)
-
+    file_path = 'C:\\Users\\CHOYEONGKYU\\Desktop\\Sequential_Recommendation\\datasets\\RAW_Transaction_data.csv'
+    data = pd.read_csv(file_path, encoding='utf-8')
+    removed_data = data[~(data.pd_c == 'unknown')]
+    removed_data = removed_data[~(removed_data.buy_ct == 0)]
+    removed_data = removed_data.sort_values(by=['trans_id','trans_seq'])
+    removed_data = removed_data.astype({'pd_c':'int'})
+    new_data = removed_data[['trans_id','trans_seq', 'pd_c']]
+    new_data.rename(columns={'trans_id':'user','trans_seq':'timestamps','pd_c':'item'}, inplace=True)
+    item_dataset = make_datasets(new_data, 50)
+    d_train, d_test, d_info = item_dataset
 
 
 '''

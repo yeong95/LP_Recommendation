@@ -5,28 +5,33 @@ import pandas as pd
 import argparse
 sys.path.append("..")
 
-os.environ["CUDA_VISIBLE_DEVICES"]='1'
+os.environ["CUDA_VISIBLE_DEVICES"]='0'
 import tensorflow as tf
 import numpy as np
 
-from model_SASRec import SASRec
+from model import Model
 from make_datasets_SASRec import make_datasets
 from DataInput_SASRec import DataIterator
 from evaluation import SortItemsbyScore,Metric_HR,Metric_MRR
+from modules import *
+from util import *
+import time
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description='SASRec')
-    parser.add_argument('--num_epochs', type=int, default=1000)
-    parser.add_argument('--emb_size', type=int, default=128)
-    parser.add_argument('--display_step', type=int, default=256)
-    parser.add_argument('--max_len', type=int, default=50)
-    parser.add_argument('--batch_size', type=int, default=64)
-    parser.add_argument('--learning_rate', type=float, default=3e-3)
-    parser.add_argument('--num_blocks', type=float, default=2)
-    parser.add_argument('--num_heads', type=float, default=1)
-    parser.add_argument('--keep_prob', type=float, default=0.8)
-    parser.add_argument('--l2_lambda', type=float, default=1e-6)
+    parser.add_argument('--dataset', default='lpoint', type=str)
+    parser.add_argument('--train_dir', default='train', type=str)
+    parser.add_argument('--batch_size', default=128, type=int)
+    parser.add_argument('--lr', default=0.001, type=float)
+    parser.add_argument('--max_len', default=50, type=int)
+    parser.add_argument('--maxlen', default=50, type=int)
+    parser.add_argument('--hidden_units', default=50, type=int)
+    parser.add_argument('--num_blocks', default=2, type=int)
+    parser.add_argument('--num_epochs', default=201, type=int)
+    parser.add_argument('--num_heads', default=1, type=int)
+    parser.add_argument('--dropout_rate', default=0.5, type=float)
+    parser.add_argument('--l2_emb', default=0.0, type=float)
     return parser.parse_args()
 
 
@@ -39,11 +44,16 @@ if __name__ == '__main__':
 
     # make datasets
 
-    print('==> make datasets <==')
-    file_path = '../../datasets/ratings1m.dat'
-    names = ['user', 'item', 'rateing', 'timestamps']
-    data = pd.read_csv(file_path, header=None, sep='::', names=names)
-    d_train, d_test, d_info = make_datasets(data, args.max_len)
+    file_path = '/content/drive/MyDrive/Sequential_Recommendation/datasets/제6회 L.POINT Big Data Competition-분석용데이터-02.거래 정보.csv'
+    data = pd.read_csv(file_path, encoding='utf-8')
+    removed_data = data[~(data.pd_c == 'unknown')]
+    removed_data = removed_data[~(removed_data.buy_ct == 0)]
+    removed_data = removed_data.sort_values(by=['trans_id','trans_seq'])
+    removed_data = removed_data.astype({'pd_c':'int'})
+    new_data = removed_data[['trans_id','trans_seq', 'pd_c']]
+    new_data.rename(columns={'trans_id':'user','trans_seq':'timestamps','pd_c':'item'}, inplace=True)
+    item_dataset = make_datasets(new_data, args.max_len)
+    d_train, d_test, d_info = item_dataset
 
 
     num_usr, num_item, items_usr_clicked, _, _ = d_info
@@ -52,78 +62,46 @@ if __name__ == '__main__':
     # Define DataIterator
     trainIterator = DataIterator('train',d_train, args.batch_size, args.max_len,
                                  all_items, items_usr_clicked, shuffle=True)
-    testIterator = DataIterator('test',d_test, args.batch_size,  shuffle=False)
 
     # Define Model
+    model = Model(usernum=num_usr,
+                    itemnum=num_item,
+                    args=args)
+    # log
+    if not os.path.isdir(args.dataset + '_' + args.train_dir):
+        os.makedirs(args.dataset + '_' + args.train_dir)
+    with open(os.path.join(args.dataset + '_' + args.train_dir, 'args.txt'), 'w') as f:
+        f.write('\n'.join([str(k) + ',' + str(v) for k, v in sorted(vars(args).items(), key=lambda x: x[0])]))
+    f.close()
+    f = open(os.path.join(args.dataset + '_' + args.train_dir, 'SASRec_log.txt'), 'w')
 
-    model = SASRec(usernum=num_user,
-                   itemnum=num_item,
-                   emb_size=args.emb_size,
-                   max_Seqlens=args.max_len,
-                   num_blocks=args.num_blocks,
-                   num_heads=args.num_heads,
-                   dropout_rate=args.keep_prob)
+    # train SASRec Model
+    T = 0.0
+    t0 = time.time()
 
-
-    #model = SASRec(num_usr,num_item,args)
-    score_pred = model.predict(all_items)
-    loss = model.loss
-
-    # Define Optimizer
-    global_step = tf.Variable(0, trainable=False)
-    optimizer = tf.train.AdamOptimizer(args.learning_rate)
-    train_op = optimizer.minimize(loss,global_step=global_step)
-
-    # Training and test for every epoch
-    with tf.Session() as sess:
+    with tf.Session(config=config) as sess:
         sess.run(tf.global_variables_initializer())
-        for epoch in range(args.num_epochs):
+
+        for epoch in range(1, args.num_epochs):
 
             #train
             cost_list = []
             for train_input in tqdm(trainIterator,desc='epoch {}'.format(epoch),total=trainIterator.total_batch):
                 batch_usr, batch_seq, batch_pos, batch_neg = train_input
-                feed_dict = {model.u: batch_usr, model.input_seq: batch_seq,
-                            model.pos: batch_pos, model.neg: batch_neg,
-                            model.is_training :True}
-                _, step, cost= sess.run([train_op, global_step, loss],feed_dict)
+                auc, cost, _ = sess.run([model.auc, model.loss, model.train_op],
+                                    {model.u: batch_usr, model.input_seq: batch_seq,
+                                    model.pos: batch_pos, model.neg: batch_neg, model.is_training: True})
                 cost_list.append(cost)
             mean_cost = np.mean(cost_list)
+
             #saver.save(sess, FLAGS.save_path)
 
-            # test
-            pred_list = []
-            next_list = []
-            user_list = []
+            if epoch % 20 == 0:
+            t1 = time.time() - t0
+            T += t1
+            t_test = all_item_evaluate(model, item_dataset, all_items, args, sess)
+            print('epoch:%d, time: %f(s), test (NDCG@10: %.4f, HR@10: %.4f)' % ( epoch, T, t_test[0], t_test[1]))
+            f.write(str(epoch)+'epoch:'+' ' + '(NDCG@10,HR@10)' + ' ' + str(t_test) + '\n')
+            f.flush()
 
-            if epoch % 10 != 0:
-                continue
-
-            for test_input in testIterator:
-                batch_usr, batch_seq, batch_pos, batch_neg = test_input
-                feed_dict = {model.u: batch_usr, model.input_seq: batch_seq, model.is_training: False}
-                pred = sess.run(score_pred, feed_dict)  # , options=options, run_metadata=run_metadata)
-
-                pred_list += pred.tolist()
-                next_list += list(batch_pos)
-                user_list += list(batch_usr)
-
-
-            sorted_items,sorted_score = SortItemsbyScore(all_items,pred_list,remove_hist=True
-            ,reverse = True,usr=user_list,usrclick=items_usr_clicked)
-
-
-            hr50 = Metric_HR(50, next_list,sorted_items)
-            Mrr = Metric_MRR(50,next_list,sorted_items)
-
-            print(" epoch {}, mean_loss{:g}, test HR@50: {:g} MRR: {:g}"
-                .format(epoch + 1, mean_cost, hr50, Mrr))
-
-
-
-
-
-
-
-
-
+            t0 = time.time()
