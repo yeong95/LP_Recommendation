@@ -2,7 +2,7 @@ import pandas as pd
 import random
 import pickle
 from tqdm import tqdm
-from Sequential_Recommendation.make_datasets import make_datasets
+from make_datasets import make_datasets
 
 
 # trainIterator = DataIterator('train',d_train, batch_size, neg_sample,

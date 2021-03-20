@@ -4,20 +4,22 @@ from tqdm import tqdm
 import pandas as pd
 import argparse
 sys.path.append('..')
-os.environ["CUDA_VISIBLE_DEVICES"]='1'
+os.environ["CUDA_VISIBLE_DEVICES"]='0'
 import tensorflow as tf
 import numpy as np
 from model_GRU4rec import GRU4Rec
-from Sequential_Recommendation.make_datasets import make_datasets
-from Sequential_Recommendation.DataInput import DataIterator
-from Sequential_Recommendation.evaluation import SortItemsbyScore,Metric_HR,Metric_MRR
+from LP_Recommendation.make_datasets import make_datasets
+from LP_Recommendation.DataInput import DataIterator
+from LP_Recommendation.evaluation import SortItemsbyScore,Metric_HR,Metric_MRR
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description='DeepRec')
-    parser.add_argument('--num_epochs', type=int, default=30)
+    parser.add_argument('--dataset', default='lpoint', type=str)
+    parser.add_argument('--train_dir', default='train', type=str)
+    parser.add_argument('--num_epochs', type=int, default=201)
     parser.add_argument('--emb_size', type=int, default=50)
-    parser.add_argument('--len_Seq', type=int, default=5)
+    parser.add_argument('--len_Seq', type=int, default=2)
     parser.add_argument('--len_Tag', type=int, default=1)
     parser.add_argument('--len_Pred', type=int, default=1)
     parser.add_argument('--neg_sample', type=int, default=10)
@@ -49,10 +51,15 @@ if __name__ == '__main__':
     # make datasets
 
     print('==> make datasets <==')
-    file_path = '../../datasets/u.data'
-    names = ['user', 'item', 'rateing', 'timestamps']
-    data = pd.read_csv(file_path, header=None, sep='\t', names=names)
-    d_train, d_test, d_info = make_datasets(data, len_Seq, len_Tag, len_Pred)
+    file_path = '/content/drive/MyDrive/Sequential_Recommendation/datasets/제6회 L.POINT Big Data Competition-분석용데이터-02.거래 정보.csv'
+    data = pd.read_csv(file_path, encoding='utf-8')
+    removed_data = data[~(data.pd_c == 'unknown')]
+    removed_data = removed_data[~(removed_data.buy_ct == 0)]
+    removed_data = removed_data.sort_values(by=['trans_id','trans_seq'])
+    removed_data = removed_data.astype({'pd_c':'int'})
+    new_data = removed_data[['trans_id','trans_seq', 'pd_c']]
+    new_data.rename(columns={'trans_id':'user','trans_seq':'timestamps','pd_c':'item'}, inplace=True)
+    d_train, d_test, d_info = make_datasets(new_data, len_Seq, len_Tag, len_Pred)
     num_usr, num_item, items_usr_clicked, _, _ = d_info
     all_items = [i for i in range(num_item)]
 
@@ -83,15 +90,14 @@ if __name__ == '__main__':
         grads_and_vars = tuple(zip(grads, tvars))
         train_op = optimizer.apply_gradients(grads_and_vars, global_step=global_step)
 
-    # Training and test for every epoch
-
+    # Training and test for every 20 epoch 
+    f = open(os.path.join(args.dataset + '_' + args.train_dir, 'GRU4Rec_log.txt'), 'w')
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
 
-        for epoch in range(num_epochs):
+        for epoch in range(1, num_epochs):
 
             #train
-
             cost_list = []
             for train_input in tqdm(trainIterator,desc='epoch {}'.format(epoch),total=trainIterator.total_batch):
                 batch_usr, batch_seq, batch_pos, batch_neg = train_input
@@ -103,7 +109,6 @@ if __name__ == '__main__':
             #saver.save(sess, FLAGS.save_path)
 
             # test
-
             pred_list = []
             next_list = []
             user_list = []
@@ -117,13 +122,15 @@ if __name__ == '__main__':
                 next_list += list(batch_pos)
                 user_list += list(batch_usr)
 
-            sorted_items,sorted_score = SortItemsbyScore(all_items,pred_list,reverse=True,remove_hist=True
-                                                   ,usr=user_list,usrclick=items_usr_clicked)
-            #
-            hr50 = Metric_HR(50, next_list, sorted_items)
-            Mrr = Metric_MRR(next_list, sorted_items)
-            print(" epoch {}, mean_loss{:g}, test HR@50: {:g} MRR: {:g}"
-                  .format(epoch + 1, mean_cost, hr50, Mrr))
+            sorted_items,sorted_score = SortItemsbyScore(all_items,pred_list,reverse=True,remove_hist=False
+                                                    ,usr=user_list,usrclick=items_usr_clicked)
+            if epoch % 20 == 0:
+              hr10 = Metric_HR(10, next_list, sorted_items)
+              NDCG = Metric_NDCG(next_list, sorted_items)
+              print(" epoch {}, mean_loss{:g}, test HR@10: {:g} NDCG@10: {:g}"
+                    .format(epoch + 1, mean_cost, hr10, NDCG))
+              f.write(str(epoch)+'epoch:'+' ' + '(NDCG@10,HR@10)' + ' ' + '('+ NDCG + ',' + hr10 + ')' + '\n')
+              f.flush()
 
 
 

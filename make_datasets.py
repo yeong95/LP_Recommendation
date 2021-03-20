@@ -49,6 +49,15 @@ def make_datasets(data, len_Seq, len_Tag, len_Pred):
     for index, row in user_sessions.iterrows():
         user = row['user']
         items = row['item_list']
+
+        # remove session that target item is in the training sequence
+        pass_= False
+        target_item = items[-1]
+        for train_item in items[:-1]:
+            if target_item == train_item:
+                pass_ = True
+                break
+        if pass_:  continue
         
         test_item = items[-1*len_Pred :]
         test_seq = items[-1* (len_Pred + len_Seq) :-1*len_Pred]
@@ -80,7 +89,16 @@ def make_datasets(data, len_Seq, len_Tag, len_Pred):
 
 
 if __name__ == '__main__':
-    make_datasets(5,3,2)
+    file_path = 'C:\\Users\\CHOYEONGKYU\\Desktop\\Sequential_Recommendation\\datasets\\RAW_Transaction_data.csv'
+    data = pd.read_csv(file_path, encoding='utf-8')
+    removed_data = data[~(data.pd_c == 'unknown')]
+    removed_data = removed_data[~(removed_data.buy_ct == 0)]
+    removed_data = removed_data.sort_values(by=['trans_id','trans_seq'])
+    removed_data = removed_data.astype({'pd_c':'int'})
+    new_data = removed_data[['trans_id','trans_seq', 'pd_c']]
+    new_data.rename(columns={'trans_id':'user','trans_seq':'timestamps','pd_c':'item'}, inplace=True)
+    d_train, d_test, d_info = make_datasets(new_data, 2, 1, 1)
+    num_usr, num_item, items_usr_clicked, _, _ = d_info
 
 
 
