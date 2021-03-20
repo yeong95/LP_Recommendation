@@ -4,6 +4,7 @@ from tqdm import tqdm
 import pandas as pd
 import argparse
 sys.path.append("..")
+sys.path.append("../..")
 
 os.environ["CUDA_VISIBLE_DEVICES"]='0'
 import tensorflow as tf
@@ -79,7 +80,7 @@ if __name__ == '__main__':
     T = 0.0
     t0 = time.time()
 
-    with tf.Session(config=config) as sess:
+    with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
 
         for epoch in range(1, args.num_epochs):
@@ -97,11 +98,11 @@ if __name__ == '__main__':
             #saver.save(sess, FLAGS.save_path)
 
             if epoch % 20 == 0:
-            t1 = time.time() - t0
-            T += t1
-            t_test = all_item_evaluate(model, item_dataset, all_items, args, sess)
-            print('epoch:%d, time: %f(s), test (NDCG@10: %.4f, HR@10: %.4f)' % ( epoch, T, t_test[0], t_test[1]))
-            f.write(str(epoch)+'epoch:'+' ' + '(NDCG@10,HR@10)' + ' ' + str(t_test) + '\n')
-            f.flush()
+              t1 = time.time() - t0
+              T += t1
+              t_test = all_item_evaluate(model, item_dataset, all_items, args, sess)
+              print('epoch:%d, time: %f(s), test (NDCG@10: %.4f, HR@10: %.4f)' % ( epoch, T, t_test[0], t_test[1]))
+              f.write(str(epoch)+'epoch:'+' ' + '(NDCG@10,HR@10)' + ' ' + str(t_test) + '\n')
+              f.flush()
 
-            t0 = time.time()
+              t0 = time.time()
