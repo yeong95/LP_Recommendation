@@ -4,11 +4,24 @@ import numpy as np
 
 def make_datasets(data, len_Seq, len_Tag, len_Pred):
 
-    #file_path = 'input/u.data'
-
+    # remove preprocessing
     p = data.groupby('item')['user'].count().reset_index().rename(columns={'user':'item_count'})
     data = pd.merge(data,p,how='left',on='item')
     data = data[data['item_count'] > 4].drop(['item_count'],axis=1)
+    q = data.groupby('user')['timestamps'].count().reset_index().rename(columns={'timestamps':'timestamp_count'})
+    data = pd.merge(data,q,how='left',on='user')
+    data = data[data['timestamp_count'] > 4].drop(['timestamp_count'],axis=1)
+    user_sessions = data.groupby('user')['item'].apply(lambda x: x.tolist()) \
+    .reset_index().rename(columns={'item': 'item_list'})
+    usr_tmp = []   # remove session that target item is in the training sequence
+    for x in range(len(user_sessions)):
+        session = user_sessions.iloc[x]
+        item_list = session.item_list
+        usr = session.user
+        if item_list[-1] in item_list[:-1]:
+            usr_tmp.append(usr)
+    mask = data['user'].isin(usr_tmp)
+    data = data[~mask]
 
     # ReMap item ids
     item_unique = data['item'].unique().tolist()
@@ -27,14 +40,8 @@ def make_datasets(data, len_Seq, len_Tag, len_Pred):
     # Get user session
     data = data.sort_values(by=['user','timestamps']).reset_index(drop=True)
 
-    # 生成用户序列
     user_sessions = data.groupby('user')['item'].apply(lambda x: x.tolist()) \
         .reset_index().rename(columns={'item': 'item_list'})
-        
-    user_sessions['count'] = user_sessions.item_list.apply(lambda x : len(x))
-    user_sessions = user_sessions[user_sessions['count'] > 4].drop(['count'],axis=1)
-    
-    all_user_count = len(user_sessions)
 
     train_users = []
     train_seqs = []
@@ -49,15 +56,6 @@ def make_datasets(data, len_Seq, len_Tag, len_Pred):
     for index, row in user_sessions.iterrows():
         user = row['user']
         items = row['item_list']
-
-        # remove session that target item is in the training sequence
-        pass_= False
-        target_item = items[-1]
-        for train_item in items[:-1]:
-            if target_item == train_item:
-                pass_ = True
-                break
-        if pass_:  continue
         
         test_item = items[-1*len_Pred :]
         test_seq = items[-1* (len_Pred + len_Seq) :-1*len_Pred]
@@ -76,8 +74,6 @@ def make_datasets(data, len_Seq, len_Tag, len_Pred):
             train_users.append(user)
             train_seqs.append(seq)
             train_targets.append(item)
-            
-
 
     d_train = pd.DataFrame({'user':train_users,'seq':train_seqs,'target':train_targets})
 

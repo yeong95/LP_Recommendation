@@ -1,0 +1,14 @@
+batch_size,500
+dataset,lpoint
+emb_size,50
+keep_prob,0.7
+l2_lambda,1e-06
+layers,1
+learning_rate,0.001
+len_Pred,1
+len_Seq,2
+len_Tag,1
+loss_fun,top1
+neg_sample,10
+num_epochs,201
+train_dir,train

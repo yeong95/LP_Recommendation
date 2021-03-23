@@ -3,14 +3,15 @@ import os
 from tqdm import tqdm
 import pandas as pd
 import argparse
-sys.path.append('..')
+# os.chdir(r'C:\Users\CHOYEONGKYU\Desktop\Sequential_Recommendation\models\GRU4Rec')
+sys.path.append('../..')
 os.environ["CUDA_VISIBLE_DEVICES"]='0'
 import tensorflow as tf
 import numpy as np
 from model_GRU4rec import GRU4Rec
-from LP_Recommendation.make_datasets import make_datasets
-from LP_Recommendation.DataInput import DataIterator
-from LP_Recommendation.evaluation import SortItemsbyScore,Metric_HR,Metric_MRR
+from make_datasets import make_datasets
+from DataInput import DataIterator
+from evaluation import SortItemsbyScore,Metric_HR,Metric_MRR,Metric_NDCG
 
 
 def parse_args():
@@ -51,7 +52,8 @@ if __name__ == '__main__':
     # make datasets
 
     print('==> make datasets <==')
-    file_path = '/content/drive/MyDrive/Sequential_Recommendation/datasets/제6회 L.POINT Big Data Competition-분석용데이터-02.거래 정보.csv'
+    # file_path = '/content/drive/MyDrive/Sequential_Recommendation/datasets/제6회 L.POINT Big Data Competition-분석용데이터-02.거래 정보.csv'
+    file_path = 'C:\\Users\\CHOYEONGKYU\\Desktop\\Sequential_Recommendation\\datasets\\RAW_Transaction_data.csv'
     data = pd.read_csv(file_path, encoding='utf-8')
     removed_data = data[~(data.pd_c == 'unknown')]
     removed_data = removed_data[~(removed_data.buy_ct == 0)]
@@ -90,12 +92,19 @@ if __name__ == '__main__':
         grads_and_vars = tuple(zip(grads, tvars))
         train_op = optimizer.apply_gradients(grads_and_vars, global_step=global_step)
 
-    # Training and test for every 20 epoch 
+    # log
+    if not os.path.isdir(args.dataset + '_' + args.train_dir):
+        os.makedirs(args.dataset + '_' + args.train_dir)
+    with open(os.path.join(args.dataset + '_' + args.train_dir, 'args.txt'), 'w') as f:
+        f.write('\n'.join([str(k) + ',' + str(v) for k, v in sorted(vars(args).items(), key=lambda x: x[0])]))
+    f.close()
     f = open(os.path.join(args.dataset + '_' + args.train_dir, 'GRU4Rec_log.txt'), 'w')
+    # Training and test for every 20 epoch 
+
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
 
-        for epoch in range(1, num_epochs):
+        for epoch in range(0, num_epochs):
 
             #train
             cost_list = []
@@ -109,34 +118,27 @@ if __name__ == '__main__':
             #saver.save(sess, FLAGS.save_path)
 
             # test
-            pred_list = []
-            next_list = []
-            user_list = []
-
-            for test_input in testIterator:
-                batch_usr, batch_seq, batch_pos, batch_neg = test_input
-                feed_dict = {input_Seq: batch_seq, input_keepprob: 1.0}
-                pred = sess.run(score_pred, feed_dict)  # , options=options, run_metadata=run_metadata)
-
-                pred_list += pred.tolist()
-                next_list += list(batch_pos)
-                user_list += list(batch_usr)
-
-            sorted_items,sorted_score = SortItemsbyScore(all_items,pred_list,reverse=True,remove_hist=False
-                                                    ,usr=user_list,usrclick=items_usr_clicked)
             if epoch % 20 == 0:
-              hr10 = Metric_HR(10, next_list, sorted_items)
-              NDCG = Metric_NDCG(next_list, sorted_items)
-              print(" epoch {}, mean_loss{:g}, test HR@10: {:g} NDCG@10: {:g}"
+                pred_list = []
+                next_list = []
+                user_list = []
+
+                for test_input in testIterator:
+                    batch_usr, batch_seq, batch_pos, batch_neg = test_input
+                    feed_dict = {input_Seq: batch_seq, input_keepprob: 1.0}
+                    pred = sess.run(score_pred, feed_dict)  # , options=options, run_metadata=run_metadata)
+
+                    pred_list += pred.tolist()
+                    next_list += list(batch_pos)
+                    user_list += list(batch_usr)
+
+                sorted_items,sorted_score = SortItemsbyScore(all_items,pred_list,reverse=True,remove_hist=False
+                                                        ,usr=user_list,usrclick=items_usr_clicked)
+            
+                hr10 = Metric_HR(10, next_list, sorted_items)
+                NDCG = Metric_NDCG(next_list, sorted_items)
+                print(" epoch {}, mean_loss{:g}, test HR@10: {:g} NDCG@10: {:g}"
                     .format(epoch + 1, mean_cost, hr10, NDCG))
-              f.write(str(epoch)+'epoch:'+' ' + '(NDCG@10,HR@10)' + ' ' + '('+ NDCG + ',' + hr10 + ')' + '\n')
-              f.flush()
-
-
-
-
-
-
-
-
-
+                f.write(str(epoch)+'epoch:'+' ' + '(NDCG@10,HR@10)' + ' ' + '('+ str(NDCG) + ',' + str(hr10) + ')' + '\n')
+                f.flush()
+        f.close()
