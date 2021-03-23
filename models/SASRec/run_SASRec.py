@@ -98,7 +98,7 @@ if __name__ == '__main__':
             if epoch % 20 == 0:
               t1 = time.time() - t0
               T += t1
-              t_test = evaluate(model, item_dataset, args, sess)
+              t_test = all_item_evaluate(model, item_dataset, all_items,  args, sess)
               print('epoch:%d, time: %f(s), test (NDCG@10: %.4f, HR@10: %.4f)' % ( epoch, T, t_test[0], t_test[1]))
               f.write(str(epoch)+'epoch:'+' ' + '(NDCG@10,HR@10)' + ' ' + str(t_test) + '\n')
               f.flush()
